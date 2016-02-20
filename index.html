@@ -3,216 +3,229 @@
 <head>
     <meta charset="UTF-8" />
     <title>Eat Bugs</title>
+    <style type="text/css">
+        body{
+            margin: 0;
+            padding: 0
+        }
+    </style>
     <script type="text/javascript">
-        var TheGame = {};
+        var GameStates = {};
     </script>
     <script src="phaser.min.js"></script>
+    <script src="VirtualArrowKeys.js"></script>
 </head>
 <body>
 <script type="text/javascript">
 
+var MAX_BUGS = 3;
+var GAME_TIME = 10.0;
+var PAUSE_TIME = 4.0;
+
+GameStates.LoadState = function(game) {
+    this.music;
+};
+
+GameStates.LoadState.prototype = {
+    preload: function () {
+        this.load.audio('music', 'assets/FarmFreshFiddlen.mp3');
+    },
+
+    create: function () {        	
+        this.music = this.add.audio('music');
+        this.music.loop = true;
+        this.music.play();
+    },
+
+    render: function () {
+        this.game.state.start('Intro');
+    }
+
+};
+
+GameStates.IntroState = function(game) {
+};
+
+GameStates.IntroState.prototype = {
+    create: function () {
+        t = this.add.text(0, this.game.height / 2, "Tap to Start", {
+            font: "55px Arial",
+            fill: "#00ff14",
+            boundsAlignH: "center",
+            align: "center"
+        });
+        t.setTextBounds(16, 16, this.game.width, this.game.height);
+        t.anchor.set(0.0, 0.5);
+
+        this.game.input.keyboard.onDownCallback = function (e) {
+            this.game.state.start('Play');
+        };
+    },
+    
+    update: function() {
+        this.input.onUp.add(function(p) {
+            this.game.state.start('Play');
+        }, this);
+    }
+    
+};
+
+
+GameStates.PlayState = function(game) {
+};
+
+GameStates.PlayState.prototype = {
+    preload: function () {
+        this.load.image('eraser', 'assets/eraser.png');
+        this.load.image('bug', 'assets/bug1.png');
+
+        this.load.audio('sfx', 'assets/squish.wav');
+    },
+
+    spawnBug: function() {
+        if (this.bugs.total >= MAX_BUGS) return;
+
+        this.bugs.create((this.game.width - 100) * Math.random(), (this.game.height - 111) * Math.random(), 'bug');
+    },
+
+    create: function () {
+        this.game.input.keyboard.onDownCallback = null;
+
+        this.start_time = this.game.time.totalElapsedSeconds();
+
+        this.score = 0;
+        this.time = GAME_TIME;
+
+        this.sfx = this.add.audio('sfx');
+        this.sfx.allowMultiple = true;
+
+        this.sfx.addMarker('squish', 0, 3.8);
+
+        this.virtualArrowKeys = new VirtualArrowKeys(this);
+        
+        this.eraser = this.add.sprite(this.game.width/2.0, this.game.height/2.0, 'eraser');
+        this.bugs = this.add.group();
+
+        this.score_text = this.add.text(10, 10, "Score: 0", { font: "25px Arial", fill: "#00ff14", align: "left" });
+        this.time_text = this.add.text(this.game.width - 120, 10, "Time: ", { font: "25px Arial", fill: "#00ff14", align: "right" });
+
+        this.game.time.events.loop(Phaser.Timer.SECOND * 1, this.spawnBug, this);
+    },
+    
+    update: function() {
+        var key  = this.virtualArrowKeys.getArrowKey(this);
+        
+        if (key == 'left') {
+            this.eraser.x -= 1;
+        }
+        
+        if (key == 'right') {
+            this.eraser.x += 1;
+        }
+        
+        if (key == 'up') {
+            this.eraser.y -= 1;
+        }
+        
+        if (key == 'down') {
+            this.eraser.y += 1;
+        }
+        
+        eraserRect = new Phaser.Rectangle(this.eraser.x, this.eraser.y, this.eraser.width, this.eraser.height);
+        eraserRect.inflate(-7, -7);
+
+        this.bugs.forEach(function(b) {
+            bugRect = new Phaser.Rectangle(b.x, b.y, b.width, b.height);
+            bugRect.inflate(-7, -7);
+            if (Phaser.Rectangle.intersects(bugRect, eraserRect)) {
+                b.destroy();
+                this.sfx.play('squish');
+                this.score += 1;
+                this.score_text.text = "Score: " + this.score.toString();
+            }
+        }, this);
+
+        time_left = GAME_TIME - (this.game.time.totalElapsedSeconds() - this.start_time);
+
+        this.time_text.text = "Time: " + Math.round(time_left);
+
+        if (time_left <= 0.0) {
+            this.game.state.start('Over', false, false, this.score);
+        }
+    }
+};
+
+GameStates.OverState = function(game) {
+};
+
+GameStates.OverState.prototype = {
+    init: function(score) {
+        this.new_high_score = false;
+        if (score > this.game.high_score) {
+            this.game['high_score'] = score;
+            this.new_high_score = score;
+        }
+    },
+
+    create: function () {
+        this.press_any_key = false;
+
+        this.start_time = this.game.time.totalElapsedSeconds();
+
+        var s = "Game Over"
+        if (this.new_high_score) {
+            s += "\nNew High Score " + this.game['high_score'];
+        }
+
+        this.go_text = this.add.text(0, this.game.height / 2, s, {
+            font: "55px Arial",
+            fill: "#00ff14",
+            boundsAlignH: "center",
+            align: "center"
+        });
+        this.go_text.setTextBounds(16, 16, this.game.width, this.game.height);
+        this.go_text.anchor.set(0.0, 0.5);
+
+        this.game.input.keyboard.onDownCallback = function (e) {
+            if (this.game.state.getCurrentState().elapsed_time > PAUSE_TIME) {
+                this.game.state.start('Play');
+            }
+        };
+        
+        this.input.onUp.add(function(p) {
+            if (this.game.state.getCurrentState().elapsed_time > PAUSE_TIME) {
+                this.game.state.start('Play');
+            }
+        }, this);
+        
+    },
+
+    update: function() {
+        this.elapsed_time = (this.game.time.totalElapsedSeconds() - this.start_time);
+
+        if (!this.press_any_key) {
+            if (this.elapsed_time > PAUSE_TIME) {
+                this.press_any_key = true;
+                this.go_text.text = "Game Over\nTap to Continue";
+            }
+        }
+
+    }
+};
+
+window.onload = function() {
+
+    var TheGame = new Phaser.Game("100", "100", Phaser.AUTO);
+
     TheGame.high_score = 0;
 
-    TheGame.LoadState = function(game) {
-        this.music;
-    };
+    TheGame.state.add('Load', GameStates.LoadState);
+    TheGame.state.add('Intro', GameStates.IntroState);
+    TheGame.state.add('Play', GameStates.PlayState);
+    TheGame.state.add('Over', GameStates.OverState);
 
-    TheGame.LoadState.prototype = {
-        preload: function () {
-            this.load.audio('music', '/assets/FarmFreshFiddlen.ogg');
-        },
-
-        create: function () {        	
-            this.music = this.add.audio('music');
-            this.music.loop = true;
-            this.music.play();
-        },
-
-        render: function () {
-            this.game.state.start('Intro');
-        }
-
-    };
-
-    TheGame.IntroState = function(game) {
-    };
-
-    TheGame.IntroState.prototype = {
-        create: function () {
-            t = this.add.text(0, this.game.height / 2, "Press Any Key to Start", {
-                font: "55px Arial",
-                fill: "#00ff14",
-                boundsAlignH: "center",
-                align: "center"
-            });
-            t.setTextBounds(16, 16, this.game.width, this.game.height);
-            t.anchor.set(0.0, 0.5);
-
-            this.game.input.keyboard.onDownCallback = function (e) {
-                this.game.state.start('Play');
-            };
-        }
-    };
-
-
-    TheGame.PlayState = function(game) {
-        this.cursors;
-        this.eraser;
-        this.bugs;
-        this.timer;
-        this.sfx;
-        this.score;
-        this.score_text;
-        this.start_time;
-        this.time;
-        this.time_text;
-    };
-
-    TheGame.PlayState.prototype = {
-        preload: function () {
-            this.load.image('bg', '/assets/bg.jpg');
-            this.load.image('eraser', '/assets/eraser.png');
-            this.load.image('bug', '/assets/bug1.png');
-
-            this.load.audio('sfx', '/assets/squish.wav');
-        },
-
-        spawnBug: function() {
-            if (this.bugs.total > 2) return;
-
-            this.bugs.create((this.game.width - 100) * Math.random(), (this.game.height - 111) * Math.random(), 'bug');
-        },
-
-        create: function () {
-        	this.game.add.tileSprite(0, 0, this.game.width, this.game.height, 'bg');
-        	
-            this.game.input.keyboard.onDownCallback = null;
-
-            this.start_time = this.game.time.totalElapsedSeconds();
-
-            this.score = 0;
-            this.time = 20;
-
-            this.sfx = this.add.audio('sfx');
-            this.sfx.allowMultiple = true;
-
-            this.sfx.addMarker('squish', 0, 3.8);
-
-            this.cursors = this.input.keyboard.createCursorKeys();
-            this.eraser = this.add.sprite(this.game.width/2.0, this.game.height/2.0, 'eraser');
-            this.bugs = this.add.group();
-
-            this.score_text = this.add.text(10, 10, "Score: 0", { font: "25px Arial", fill: "#00ff14", align: "left" });
-            this.time_text = this.add.text(this.game.width - 120, 10, "Time: ", { font: "25px Arial", fill: "#00ff14", align: "right" });
-
-            this.game.time.events.loop(Phaser.Timer.SECOND * 1, this.spawnBug, this);
-        },
-
-        update: function() {
-            if (this.cursors.left.isDown) {
-                this.eraser.x -= 1;
-            }
-            if (this.cursors.right.isDown) {
-                this.eraser.x += 1;
-            }
-            if (this.cursors.up.isDown) {
-                this.eraser.y -= 1;
-            }
-            if (this.cursors.down.isDown) {
-                this.eraser.y += 1;
-            }
-
-            eraserRect = new Phaser.Rectangle(this.eraser.x, this.eraser.y, this.eraser.width, this.eraser.height);
-            eraserRect.inflate(-7, -7);
-
-            this.bugs.forEach(function(b) {
-                bugRect = new Phaser.Rectangle(b.x, b.y, b.width, b.height);
-                bugRect.inflate(-7, -7);
-                if (Phaser.Rectangle.intersects(bugRect, eraserRect)) {
-                    b.destroy();
-                    this.sfx.play('squish');
-                    this.score += 1;
-                    this.score_text.text = "Score: " + this.score.toString();
-                }
-            }, this);
-
-            time_left = 8.0 - (this.game.time.totalElapsedSeconds() - this.start_time);
-
-            this.time_text.text = "Time: " + Math.round(time_left);
-
-            if (time_left <= 0.0) {
-                this.game.state.start('Over', false, false, this.score);
-            }
-        }
-    };
-
-    TheGame.OverState = function(game) {
-        this.elapsed_time;
-        this.new_high_score;
-        this.go_text;
-        this.start_time;
-        this.press_any_key;
-    };
-
-    TheGame.OverState.prototype = {
-        init: function(score) {
-            this.new_high_score = false;
-            if (score > TheGame.high_score) {
-                TheGame['high_score'] = score;
-                this.new_high_score = score;
-            }
-        },
-
-        create: function () {
-            this.press_any_key = false;
-
-            this.start_time = this.game.time.totalElapsedSeconds();
-
-            var s = "Game Over"
-            if (this.new_high_score) {
-                s += "\nNew High Score " + TheGame['high_score'];
-            }
-
-            this.go_text = this.add.text(0, this.game.height / 2, s, {
-                font: "55px Arial",
-                fill: "#00ff14",
-                boundsAlignH: "center",
-                align: "center"
-            });
-            this.go_text.setTextBounds(16, 16, this.game.width, this.game.height);
-            this.go_text.anchor.set(0.0, 0.5);
-
-            this.game.input.keyboard.onDownCallback = function (e) {
-                if (this.game.state.getCurrentState().elapsed_time > 5.0) {
-                    this.game.state.start('Play');
-                }
-            };
-        },
-
-        update: function() {
-            this.elapsed_time = (this.game.time.totalElapsedSeconds() - this.start_time);
-
-            if (!this.press_any_key) {
-                if (this.elapsed_time > 5.0) {
-                    this.press_any_key = true;
-                    this.go_text.text = "Game Over\nPress Any Key to Continue";
-                }
-            }
-
-        }
-    };
-
-    window.onload = function() {
-
-        var game = new Phaser.Game(800, 600, Phaser.AUTO);
-
-        game.state.add('Load', TheGame.LoadState);
-        game.state.add('Intro', TheGame.IntroState);
-        game.state.add('Play', TheGame.PlayState);
-        game.state.add('Over', TheGame.OverState);
-
-        game.state.start('Load');
-    };
+    TheGame.state.start('Load');
+};
 
 </script>
 </body>
